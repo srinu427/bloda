@@ -127,7 +127,12 @@ pub fn create_archive(
   let db_path = format!("{}.bdadb", output.to_string_lossy());
   let mut conn = diesel::SqliteConnection::establish(&db_path)
     .map_err(|e| format!("at opening {}: {e}", &db_path))?;
-  diesel::sql_query("CREATE TABLE files(name TEXT PRIMARY KEY, …)")
+  diesel::sql_query("CREATE TABLE files(
+    name TEXT PRIMARY KEY,
+    size BIGINT,
+    start_block BIGINT,
+    start_offset INTEGER)"
+  )
     .execute(&mut conn)
     .map_err(|e| format!("at creating files table in index: {e}"))?;
   diesel::insert_into(sql_structs::files::table)

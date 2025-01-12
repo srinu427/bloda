@@ -117,9 +117,11 @@ pub fn create_archive(
   let block_sizes = Vec::with_capacity(work.len());
   for block_id in 0..work.len() {
     let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
-    let mut fr = fs::File::create(&block_file_name)
+    let mut fr = fs::File::open(&block_file_name)
       .map_err(|e| format!("at opening tempfile {:?}: {e}", &block_file_name))?;
     io::copy(&mut fr, &mut fw).map_err(|e| format!("at writing to blob: {e}"))?;
+    fs::remove_file(&block_file_name)
+      .map_err(|e| format!("at removing tempfile {:?}: {e}", &block_file_name))?;
   }
 
   let db_path = format!("{}.bdadb", output.to_string_lossy());

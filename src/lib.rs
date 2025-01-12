@@ -124,11 +124,12 @@ pub fn create_archive(
       .map_err(|e| format!("at removing tempfile {:?}: {e}", &block_file_name))?;
   }
 
-  fw.flush();
-
   let db_path = format!("{}.bdadb", output.to_string_lossy());
   let mut conn = diesel::SqliteConnection::establish(&db_path)
     .map_err(|e| format!("at opening {}: {e}", &db_path))?;
+  diesel::sql_query("CREATE TABLE files(name TEXT PRIMARY KEY, …)")
+    .execute(&mut conn)
+    .map_err(|e| format!("at creating files table in index: {e}"))?;
   diesel::insert_into(sql_structs::files::table)
     .values(&files)
     .execute(&mut conn)

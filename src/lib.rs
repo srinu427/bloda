@@ -1,4 +1,4 @@
-use std::{fs, io::{self, Read, Seek}, path::{Path, PathBuf}};
+use std::{fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}};
 
 use diesel::{Connection, RunQueryDsl};
 use sql_structs::{ArchiveBlockInfo, ArchiveFileEntry, ArchiveFolderLeafEntry};
@@ -123,6 +123,8 @@ pub fn create_archive(
     fs::remove_file(&block_file_name)
       .map_err(|e| format!("at removing tempfile {:?}: {e}", &block_file_name))?;
   }
+
+  fw.flush();
 
   let db_path = format!("{}.bdadb", output.to_string_lossy());
   let mut conn = diesel::SqliteConnection::establish(&db_path)

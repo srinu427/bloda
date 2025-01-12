@@ -19,6 +19,7 @@ diesel::table! {
   blocks (id) {
     id -> BigInt,
     size -> Integer,
+    original_size -> Integer,
     compression_type -> Text,
     compression_level -> Integer
   }
@@ -50,6 +51,7 @@ pub struct ArchiveFolderLeafEntry{
 pub struct ArchiveBlockInfo{
   pub id: i64,
   pub size: i32,
+  pub original_size: i32,
   pub compression_type: String,
   pub compression_level: i32,
 }

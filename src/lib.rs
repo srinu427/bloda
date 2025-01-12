@@ -1,4 +1,4 @@
-use std::{fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}};
+use std::{fs, io::{self, Read, Seek}, path::{Path, PathBuf}};
 
 use diesel::{Connection, RunQueryDsl};
 use sql_structs::{ArchiveBlockInfo, ArchiveFileEntry, ArchiveFolderLeafEntry};
@@ -135,6 +135,18 @@ pub fn create_archive(
   )
     .execute(&mut conn)
     .map_err(|e| format!("at creating files table in index: {e}"))?;
+  diesel::sql_query("CREATE TABLE folder_leaves(name TEXT PRIMARY KEY)")
+    .execute(&mut conn)
+    .map_err(|e| format!("at creating folder_leaves table in index: {e}"))?;
+  diesel::sql_query("CREATE TABLE blocks(
+    id BIGINT PRIMARY KEY,
+    size INTEGER,
+    original_size INTEGER,
+    compression_type TEXT,
+    compression_level INTEGER)"
+  )
+    .execute(&mut conn)
+    .map_err(|e| format!("at creating blocks table in index: {e}"))?;
   diesel::insert_into(sql_structs::files::table)
     .values(&files)
     .execute(&mut conn)
@@ -151,6 +163,7 @@ pub fn create_archive(
         .map(|(i, x)| ArchiveBlockInfo{
           id: i as i64,
           size: *x,
+          original_size: block_size,
           compression_type: compression_type.to_string(),
           compression_level: 0
         })

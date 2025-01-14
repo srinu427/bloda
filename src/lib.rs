@@ -109,6 +109,10 @@ impl ArchiveReader{
 
   pub fn extract_file(&self, name: &str, output: &Path) -> Result<(), String>{
     let file_info = self.files.get(name).ok_or(format!("{name} doesn't exist in archive"))?;
+    if let Some(parent_dir) = output.parent(){
+      fs::create_dir_all(parent_dir)
+        .map_err(|e| format!("at creating dir {parent_dir:?}: {e}"))?;
+    }
     let mut fw = fs::File::create(output).map_err(|e| format!("at opening {output:?}: {e}"))?;
     for block_id in file_info.start_block..file_info.end_block + 1{
       let block_data = self.extract_block(block_id)

@@ -42,7 +42,7 @@ pub fn compress_data(input_data: &[u8], compression: &str) -> Result<Vec<u8>, St
     },
     "ZSTD" => {
       let compressed_data = Vec::with_capacity(input_data.len());
-      let mut zstd_writer = zstd::Encoder::new(compressed_data, 5)
+      let mut zstd_writer = zstd::Encoder::new(compressed_data, 6)
         .map_err(|e| format!("at initializing zstd compressor: {e}"))?;
       zstd_writer.set_pledged_src_size(Some(input_data.len() as _))
         .map_err(|e| format!("at setting inp len: {e}"))?;

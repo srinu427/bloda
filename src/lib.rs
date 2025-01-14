@@ -95,9 +95,12 @@ impl ArchiveReader{
     let block_offset =  self.block_offsets[block_id as usize];
     let block_size = self.block_infos[block_id as usize].size;
     let compression = &self.block_infos[block_id as usize].compression_type;
-    let mut comp_data = vec![0u8; block_size as usize - block_offset as usize];
+    let mut comp_data = vec![0u8; block_size as usize];
     let mut fr = fs::File::open(&self.blob_path)
       .map_err(|e| format!("at opening blob {:?}: {e}", &self.blob_path))?;
+    fr
+      .seek(io::SeekFrom::Start(block_offset))
+      .map_err(|e| format!("at seeking to {block_offset}: {e}"))?;
     fr
       .read(&mut comp_data)
       .map_err(|e| format!("at reading blob {:?}: {e}", &self.blob_path))?;

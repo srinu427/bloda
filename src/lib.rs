@@ -1,6 +1,6 @@
-use std::{fs, io::{self, Read, Seek}, path::{Path, PathBuf}};
+use std::{collections::HashMap, fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}};
 
-use diesel::{Connection, RunQueryDsl};
+use diesel::{Connection, QueryDsl, RunQueryDsl, SelectableHelper};
 use sql_structs::{ArchiveBlockInfo, ArchiveFileEntry, ArchiveFolderLeafEntry};
 use walkdir::WalkDir;
 
@@ -9,6 +9,183 @@ const DEFAULT_BLOCK_SIZE: u32 = 4 * 1024 * 1024; // 4MB
 mod compress_utils;
 mod sql_structs;
 
+pub struct ArchiveReader{
+  header_path: PathBuf,
+  blob_path: PathBuf,
+  files: HashMap<String, sql_structs::ArchiveFileEntry>,
+  folder_leaves: HashMap<String, sql_structs::ArchiveFolderLeafEntry>,
+  block_infos: Vec<sql_structs::ArchiveBlockInfo>,
+  block_offsets: Vec<u64>,
+}
+
+impl ArchiveReader{
+  pub fn new(header: &Path, blob: &Path) -> Result<Self, String>{
+    let mut conn = diesel::SqliteConnection::establish(&header.to_string_lossy().to_string())
+      .map_err(|e| format!("at opening {:?}: {e}", header))?;
+    
+    let file_infos = sql_structs::files::table
+      .select(sql_structs::ArchiveFileEntry::as_select())
+      .load(&mut conn)
+      .map_err(|e| format!("at getting file infos: {e}"))?
+      .iter()
+      .cloned()
+      .map(|x| (x.name.clone(), x))
+      .collect();
+    let folder_leaf_infos = sql_structs::folder_leaves::table
+      .select(sql_structs::ArchiveFolderLeafEntry::as_select())
+      .load(&mut conn)
+      .map_err(|e| format!("at getting folder leaf infos: {e}"))?
+      .iter()
+      .cloned()
+      .map(|x| (x.name.clone(), x))
+      .collect();
+    let blocks = sql_structs::blocks::table
+      .select(sql_structs::ArchiveBlockInfo::as_select())
+      .load(&mut conn)
+      .map_err(|e| format!("at getting block infos: {e}"))?;
+
+    let block_offsets = (0..blocks.len())
+      .map(|i| blocks[0..i].iter().map(|x| x.size as u64).sum::<u64>())
+      .collect::<Vec<_>>();
+
+    Ok(Self {
+      header_path: header.to_owned(),
+      blob_path: blob.to_owned(),
+      files: file_infos,
+      folder_leaves: folder_leaf_infos,
+      block_infos: blocks,
+      block_offsets,
+    })
+  }
+
+  pub fn list_all_entries(&self) -> Vec<String>{
+    let mut  dir_leaves = self
+      .folder_leaves
+      .values()
+      .map(|x| x.name.clone())
+      .collect::<Vec<_>>();
+    let mut files = self
+      .files
+      .values()
+      .map(|x| x.name.clone())
+      .collect::<Vec<_>>();
+    files.append(&mut dir_leaves);
+    files
+  }
+
+  pub fn list_entries(&self, regex_pattern: &str) -> Result<Vec<String>, String>{
+    let re = regex::Regex::new(regex_pattern).map_err(|e| format!("invalid re pattern: {e}"))?;
+    let mut  dir_leaves = self
+      .folder_leaves
+      .values()
+      .filter(|x| re.is_match(&x.name))
+      .map(|x| x.name.clone())
+      .collect::<Vec<_>>();
+    let mut files = self
+      .files
+      .values()
+      .filter(|x| re.is_match(&x.name))
+      .map(|x| x.name.clone())
+      .collect::<Vec<_>>();
+    files.append(&mut dir_leaves);
+    Ok(files)
+  }
+
+  fn extract_block(&self, block_id: i64) -> Result<Vec<u8>, String>{
+    let block_offset =  self.block_offsets[block_id as usize];
+    let block_size = self.block_infos[block_id as usize].size;
+    let compression = &self.block_infos[block_id as usize].compression_type;
+    let mut comp_data = vec![0u8; block_size as usize - block_offset as usize];
+    let mut fr = fs::File::open(&self.blob_path)
+      .map_err(|e| format!("at opening blob {:?}: {e}", &self.blob_path))?;
+    fr
+      .read(&mut comp_data)
+      .map_err(|e| format!("at reading blob {:?}: {e}", &self.blob_path))?;
+    compress_utils::decompress_data(&mut comp_data, compression)
+  }
+
+  pub fn extract_file(&self, name: &str, output: &Path) -> Result<(), String>{
+    let file_info = self.files.get(name).ok_or(format!("{name} doesn't exist in archive"))?;
+    let mut fw = fs::File::create(output).map_err(|e| format!("at opening {output:?}: {e}"))?;
+    for block_id in file_info.start_block..file_info.end_block + 1{
+      let block_data = self.extract_block(block_id)
+        .map_err(|e| format!("at extracting block: {block_id}: {e}"))?;
+      let slice_to_write = if block_id == file_info.start_block{
+        &block_data[file_info.start_offset as usize..]
+      } else if block_id == file_info.end_block {
+        &block_data[..file_info.end_offset as usize]
+      } else {
+        &block_data
+      };
+      fw.write(slice_to_write)
+        .map_err(|e| format!("at writing from block: {block_id}: {e}"))?;
+    }
+    fw.flush().map_err(|e| format!("at flushing to {output:?}: {e}"))?;
+    Ok(())
+  }
+
+  pub fn extract_files(
+    &self,
+    re_pattern: &str,
+    output_dir: &Path,
+    ignore_errors: bool
+  ) -> Result<(), String>{
+    let re_obj = regex::Regex::new(re_pattern).map_err(|e| format!("invalid regex: {e}"))?;
+    let mut files_to_extract =
+      self.files.iter().filter(|x| re_obj.is_match(x.0)).map(|x| x.1).collect::<Vec<_>>();
+    files_to_extract.sort_by_key(|x| x.start_block);
+
+    let mut per_start_block = HashMap::new();
+    for file_info in files_to_extract{
+      let val = per_start_block
+        .entry(file_info.start_block)
+        .or_insert((vec![], None));
+      if file_info.start_block != file_info.end_block{
+        val.1 = Some(file_info)
+      } else {
+        val.0.push(file_info);
+      }
+    }
+
+    for (block_id, (work, multi_block_work)) in per_start_block{
+      let start_block_data = self
+        .extract_block(block_id)
+        .map_err(|e| format!("at reading block {block_id}: {e}"))?;
+      for file_info in work{
+        let out_name = output_dir.join(&file_info.name);
+        let mut fw = fs::File::create(&out_name)
+          .map_err(|e| format!("at opening {:?}: {e}", &out_name))?;
+        fw
+          .write(&start_block_data[file_info.start_offset as usize..file_info.end_offset as _])
+          .map_err(|e| format!("at writing to {:?}: {e}", &out_name))?;
+        fw.flush().map_err(|e| format!("at flushing to {:?}: {e}", &out_name))?;
+      }
+      if let Some(file_info) = multi_block_work{
+        let out_name = output_dir.join(&file_info.name);
+        let mut fw = fs::File::create(&out_name)
+          .map_err(|e| format!("at opening {:?}: {e}", &out_name))?;
+        fw
+          .write(&start_block_data[file_info.start_offset as usize..])
+          .map_err(|e| format!("at writing to {:?}: {e}", &out_name))?;
+        for block_id in file_info.start_block + 1..file_info.end_block + 1{
+          let block_data = self.extract_block(block_id)
+            .map_err(|e| format!("at extracting block: {block_id}: {e}"))?;
+          let slice_to_write = if block_id == file_info.start_block{
+            &block_data[file_info.start_offset as usize..]
+          } else if block_id == file_info.end_block {
+            &block_data[..file_info.end_offset as usize]
+          } else {
+            &block_data
+          };
+          fw.write(slice_to_write)
+            .map_err(|e| format!("at writing from block: {block_id}: {e}"))?;
+        }
+        fw.flush().map_err(|e| format!("at flushing to {:?}: {e}", &out_name))?;
+      }
+    }
+    Ok(())
+  }
+}
 
 fn create_header_and_work(
   dir: &Path,
@@ -49,13 +226,10 @@ fn create_header_and_work(
   let mut curr_block_offset = 0;
 
   for (path, size) in file_entry_info_map {
+    let start_block = curr_block_no;
+    let start_offset = curr_block_offset;
     let entry_name = path.strip_prefix(dir).unwrap_or(path).to_string_lossy().to_string();
-    archive_file_entries.push(ArchiveFileEntry{
-      name: entry_name.clone(),
-      size,
-      start_block: curr_block_no,
-      start_offset: curr_block_offset
-    });
+    
     let mut rem_file_size = size;
     loop {
       block_file_infos[curr_block_no as usize]
@@ -70,6 +244,14 @@ fn create_header_and_work(
         rem_file_size -= rem_block_size as i64;
       }
     }
+
+    archive_file_entries.push(ArchiveFileEntry{
+      name: entry_name.clone(),
+      start_block,
+      start_offset,
+      end_block: curr_block_no,
+      end_offset: curr_block_offset,
+    });
   }
   (archive_file_entries, leaf_dirs, block_file_infos)
 }
@@ -129,9 +311,10 @@ pub fn create_archive(
     .map_err(|e| format!("at opening {}: {e}", &db_path))?;
   diesel::sql_query("CREATE TABLE files(
     name TEXT PRIMARY KEY,
-    size BIGINT,
     start_block BIGINT,
-    start_offset INTEGER)"
+    start_offset INTEGER,
+    end_block BIGINT,
+    end_offset INTEGER)"
   )
     .execute(&mut conn)
     .map_err(|e| format!("at creating files table in index: {e}"))?;
@@ -141,7 +324,6 @@ pub fn create_archive(
   diesel::sql_query("CREATE TABLE blocks(
     id BIGINT PRIMARY KEY,
     size INTEGER,
-    original_size INTEGER,
     compression_type TEXT,
     compression_level INTEGER)"
   )
@@ -163,7 +345,6 @@ pub fn create_archive(
         .map(|(i, x)| ArchiveBlockInfo{
           id: i as i64,
           size: *x,
-          original_size: block_size,
           compression_type: compression_type.to_string(),
           compression_level: 0
         })
@@ -172,5 +353,11 @@ pub fn create_archive(
     .execute(&mut conn)
     .map_err(|e| format!("at writing archive info to index: {e}"))?;
 
+  Ok(())
+}
+
+pub fn decompress_archive(bdadb: &Path, bdablob: &Path, out_dir: &Path) -> Result<(), String>{
+  let archive = ArchiveReader::new(bdadb, bdablob).map_err(|e| format!("invalid archive: {e}"))?;
+  archive.extract_files(".*", out_dir, true).map_err(|e| format!("at extracting: {e}"))?;
   Ok(())
 }

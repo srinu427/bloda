@@ -1,4 +1,33 @@
-use std::io::Write;
+use std::io::{Read, Write};
+
+pub fn decompress_data(input_data: &[u8], compression: &str) -> Result<Vec<u8>, String> {
+  let output_data = match compression {
+    "LZMA" => {
+      lzma::decompress(&input_data).map_err(|e| format!("at decompressing block: {e}"))?
+    }
+    "LZ4" => {
+      let mut extracted_data = Vec::with_capacity(input_data.len());
+      let mut lz4_reader = lz4_flex::frame::FrameDecoder::new(input_data);
+      lz4_reader
+        .read_to_end(&mut extracted_data)
+        .map_err(|e| format!("at decompressing block: {e}"))?;
+      extracted_data
+    },
+    "ZSTD" => {
+      let mut extracted_data = Vec::with_capacity(input_data.len());
+      let mut zstd_reader = zstd::Decoder::new(input_data)
+        .map_err(|e| format!("at initializing zstd decompressor: {e}"))?;
+      zstd_reader
+        .read_to_end(&mut extracted_data)
+        .map_err(|e| format!("at decompressing block: {e}"))?;
+      extracted_data
+    },
+    _ => {
+      return Err("unknown compression type".to_string());
+    }
+  };
+  Ok(output_data)
+}
 
 pub fn compress_data(input_data: &[u8], compression: &str) -> Result<Vec<u8>, String> {
   let output_data = match compression {

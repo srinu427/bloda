@@ -296,12 +296,13 @@ pub fn create_archive(
   let mut fw = fs::File::create(&blob_path)
     .map_err(|e| format!("at opening {:?}: {e}", &blob_path))?;
 
-  let block_sizes = Vec::with_capacity(work.len());
+  let mut block_sizes = Vec::with_capacity(work.len());
   for block_id in 0..work.len() {
     let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
     let mut fr = fs::File::open(&block_file_name)
       .map_err(|e| format!("at opening tempfile {:?}: {e}", &block_file_name))?;
-    io::copy(&mut fr, &mut fw).map_err(|e| format!("at writing to blob: {e}"))?;
+    let block_size = io::copy(&mut fr, &mut fw).map_err(|e| format!("at writing to blob: {e}"))?;
+    block_sizes.push(block_size as i32);
     fs::remove_file(&block_file_name)
       .map_err(|e| format!("at removing tempfile {:?}: {e}", &block_file_name))?;
   }

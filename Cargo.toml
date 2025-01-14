@@ -7,6 +7,6 @@ edition = "2021"
 diesel = { version = "2.2.6", features = ["sqlite"] }
 lz4_flex = "0.11.3"
 regex = "1.11.1"
-rust-lzma = "0.6.0"
+rust-lzma = { version = "0.6.0", features = ["static"] }
 walkdir = "2.5.0"
 zstd = "0.13.2"

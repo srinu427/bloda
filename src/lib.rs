@@ -160,6 +160,10 @@ impl ArchiveReader{
         .map_err(|e| format!("at reading block {block_id}: {e}"))?;
       for file_info in work{
         let out_name = output_dir.join(&file_info.name);
+        if let Some(parent_dir) = out_name.parent(){
+          fs::create_dir_all(parent_dir)
+            .map_err(|e| format!("at creating dir {parent_dir:?}: {e}"))?;
+        }
         let mut fw = fs::File::create(&out_name)
           .map_err(|e| format!("at opening {:?}: {e}", &out_name))?;
         fw
@@ -169,6 +173,10 @@ impl ArchiveReader{
       }
       if let Some(file_info) = multi_block_work{
         let out_name = output_dir.join(&file_info.name);
+        if let Some(parent_dir) = out_name.parent(){
+          fs::create_dir_all(parent_dir)
+            .map_err(|e| format!("at creating dir {parent_dir:?}: {e}"))?;
+        }
         let mut fw = fs::File::create(&out_name)
           .map_err(|e| format!("at opening {:?}: {e}", &out_name))?;
         fw

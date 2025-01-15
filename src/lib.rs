@@ -308,6 +308,7 @@ pub fn create_archive(
     } else {
       compress_utils::compress_data(&block, compression_type)?
     };
+    println!("block_id compressed size: {}", compressed_data.len());
     fs::write(&block_file_name, &compressed_data)
       .map_err(|e| format!("at writing to tempfile: {:?}: {e}", &block_file_name))?;
   }

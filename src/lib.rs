@@ -44,9 +44,13 @@ impl ArchiveReader{
       .load(&mut conn)
       .map_err(|e| format!("at getting block infos: {e}"))?;
 
+    println!("blocks: {blocks:?}");
+
     let block_offsets = (0..blocks.len())
       .map(|i| blocks[0..i].iter().map(|x| x.size as u64).sum::<u64>())
       .collect::<Vec<_>>();
+
+    println!("block_offsets: {block_offsets:?}");
 
     Ok(Self {
       header_path: header.to_owned(),

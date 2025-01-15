@@ -170,6 +170,7 @@ impl ArchiveReader{
         }
         let mut fw = fs::File::create(&out_name)
           .map_err(|e| format!("at opening {:?}: {e}", &out_name))?;
+        println!("file_info: {file_info:?}");
         fw
           .write(&start_block_data[file_info.start_offset as usize..file_info.end_offset as _])
           .map_err(|e| format!("at writing to {:?}: {e}", &out_name))?;

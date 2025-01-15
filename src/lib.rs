@@ -301,6 +301,7 @@ pub fn create_archive(
         .map_err(|e| format!("at reading from {:?}: {e}", &f_path))?;
       block_filled_len += size_read;
     }
+    println!("{block_id} filled size: {block_filled_len}");
     block = block[..block_filled_len].to_vec();
     let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
     let compressed_data = if compression_type == "NONE"{
@@ -308,7 +309,7 @@ pub fn create_archive(
     } else {
       compress_utils::compress_data(&block, compression_type)?
     };
-    println!("block_id compressed size: {}", compressed_data.len());
+    println!("{block_id} compressed size: {}", compressed_data.len());
     fs::write(&block_file_name, &compressed_data)
       .map_err(|e| format!("at writing to tempfile: {:?}: {e}", &block_file_name))?;
   }

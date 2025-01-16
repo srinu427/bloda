@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}};
+use std::{collections::HashMap, fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 
 use diesel::{Connection, QueryDsl, RunQueryDsl, SelectableHelper};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
@@ -14,8 +14,7 @@ pub struct ArchiveReader{
   archive_path: PathBuf,
   files: HashMap<String, sql_structs::ArchiveFileEntry>,
   folder_leaves: HashMap<String, sql_structs::ArchiveFolderLeafEntry>,
-  block_infos: Vec<sql_structs::ArchiveBlockInfo>,
-  block_offsets: Vec<u64>,
+  block_infos: HashMap<i64, sql_structs::ArchiveBlockInfo>,
 }
 
 impl ArchiveReader{
@@ -60,18 +59,18 @@ impl ArchiveReader{
     let blocks = sql_structs::blocks::table
       .select(sql_structs::ArchiveBlockInfo::as_select())
       .load(&mut conn)
-      .map_err(|e| format!("at getting block infos: {e}"))?;
-
-    let block_offsets = (0..blocks.len())
-      .map(|i| blob_offset + blocks[0..i].iter().map(|x| x.size as u64).sum::<u64>())
-      .collect::<Vec<_>>();
+      .map_err(|e| format!("at getting block infos: {e}"))?
+      .iter()
+      .cloned()
+      .map(|mut x| {x.offset += blob_offset as i64; x})
+      .map(|x| (x.id, x))
+      .collect();
 
     Ok(Self {
       archive_path: archive_path.to_owned(),
       files: file_infos,
       folder_leaves: folder_leaf_infos,
       block_infos: blocks,
-      block_offsets,
     })
   }
 
@@ -109,9 +108,10 @@ impl ArchiveReader{
   }
 
   fn extract_block(&self, block_id: i64) -> Result<Vec<u8>, String>{
-    let block_offset =  self.block_offsets[block_id as usize];
-    let block_size = self.block_infos[block_id as usize].size;
-    let compression = &self.block_infos[block_id as usize].compression_type;
+    let block_info = self.block_infos.get(&block_id).ok_or("invalid block id".to_string())?;
+    let block_offset =  block_info.offset as u64;
+    let block_size = block_info.size;
+    let compression = &block_info.compression_type;
     let mut comp_data = vec![0u8; block_size as usize];
     let mut fr = fs::File::open(&self.archive_path)
       .map_err(|e| format!("at opening archive {:?}: {e}", &self.archive_path))?;
@@ -299,12 +299,47 @@ fn create_header_and_work(
   (archive_file_entries, leaf_dirs, block_file_infos)
 }
 
-pub fn create_and_compress_block(
+struct WriterThreadInput{
+  block_id: i64,
+  compression_type: String,
+  data: Vec<u8>,
+}
+
+fn writer_fn(
+  path: PathBuf,
+  work: Arc<Mutex<Vec<Option<WriterThreadInput>>>>,
+) -> Result<Vec<sql_structs::ArchiveBlockInfo>, String>{
+  let mut block_infos = vec![];
+  let mut fw = fs::File::create(&path)
+    .map_err(|e| format!("at creating {:?}: {e}", &path))?;
+  let mut offset = 0i64;
+  loop {
+    let Some(work_item) =
+      work.lock().map_err(|e| format!("at work array mem poison: {e}"))?.pop() else {continue;};
+    if let Some(work_item) = work_item {
+      let size = fw.write(&work_item.data).map_err(|e| format!("at writing to blob: {e}"))?;
+      block_infos.push(ArchiveBlockInfo{
+        id: work_item.block_id,
+        size: size as _,
+        offset,
+        compression_type: work_item.compression_type
+      });
+      offset += size as i64;
+    } else {
+      break Ok::<(), String>(())
+    }
+  }?;
+  fw.flush().map_err(|e| format!("at flushing to blob: {e}"))?;
+  Ok(block_infos)
+}
+
+fn create_and_compress_block(
+  block_id: i64,
   block_size: i32,
   block_data_info: Vec<(PathBuf, i64)>,
   compression_type: &str,
-  output: &Path,
-) -> Result<i32, String>{
+  work: Arc<Mutex<Vec<Option<WriterThreadInput>>>>,
+) -> Result<(), String>{
   let mut block = vec![0u8; block_size as usize];
   let mut block_filled_len = 0;
   for (f_path, offset) in block_data_info{
@@ -325,9 +360,15 @@ pub fn create_and_compress_block(
   } else {
     compress_utils::compress_data(&block, compression_type)?
   };
-  fs::write(output, &compressed_data)
-    .map_err(|e| format!("at writing to tempfile: {output:?}: {e}"))?;
-  Ok(compressed_data.len() as _)
+  work
+    .lock()
+    .map_err(|e| format!("work array mem poisoned: {e}"))?
+    .push(Some(WriterThreadInput {
+      block_id,
+      compression_type: compression_type.to_string(),
+      data: compressed_data
+    }));
+  Ok(())
 }
 
 fn create_archive_inner(
@@ -338,24 +379,42 @@ fn create_archive_inner(
 ) -> Result<(), String>{
   let block_size = block_size.unwrap_or(DEFAULT_BLOCK_SIZE) as i32;
   let (files, folder_leaves, work) = create_header_and_work(dir, block_size);
-  let block_count = work.len();
 
-  let block_temp_file_prefix = format!("{}.tempblock", output.to_string_lossy());
+  let temp_blob = output.with_extension("bdablob");
+  let writer_work = Arc::new(Mutex::new(vec![]));
 
-  let block_sizes = work
+  let temp_blob_clone = temp_blob.clone();
+  let writer_work_clone = writer_work.clone();
+  let writer_thread = std::thread::spawn(move || writer_fn(
+    temp_blob_clone,
+    writer_work_clone,
+  ));
+
+  work
     .into_par_iter()
     .enumerate()
     .map(|(block_id, block_info)| {
-      let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
+      let t_local_writer_work = writer_work.clone();
       create_and_compress_block(
+        block_id as _,
         block_size,
         block_info,
         compression_type,
-        &block_file_name
+        t_local_writer_work
       )
         .map_err(|e| format!("at making block {block_id}: {e}"))
     })
     .collect::<Result<Vec<_>, String>>()?;
+
+  writer_work
+    .lock()
+    .map_err(|e| format!("work array mem poisoned: {e}"))?
+    .push(None);
+
+  let block_infos = writer_thread
+    .join()
+    .map_err(|_| format!("at joining writer thread"))?
+    .map_err(|e| format!("error in writer thread: {e}"))?;
 
   let db_path = format!("{}.bdadb", output.to_string_lossy());
   if Path::new(&db_path).is_file(){
@@ -379,6 +438,7 @@ fn create_archive_inner(
   diesel::sql_query("CREATE TABLE blocks(
     id BIGINT PRIMARY KEY,
     size INTEGER,
+    offset BIGINT,
     compression_type TEXT,
     compression_level INTEGER)"
   )
@@ -393,25 +453,13 @@ fn create_archive_inner(
     .execute(&mut conn)
     .map_err(|e| format!("at writing folder leaves info to index: {e}"))?;
   diesel::insert_into(sql_structs::blocks::table)
-    .values(
-      &block_sizes
-        .iter()
-        .enumerate()
-        .map(|(i, x)| ArchiveBlockInfo{
-          id: i as i64,
-          size: *x,
-          compression_type: compression_type.to_string(),
-          compression_level: 0
-        })
-        .collect::<Vec<_>>()
-    )
+    .values(&block_infos)
     .execute(&mut conn)
     .map_err(|e| format!("at writing archive info to index: {e}"))?;
 
   // Combining all of the temp files into archive
-  let archive_path = PathBuf::from(format!("{}.bda", output.to_string_lossy()));
-  let mut fw = fs::File::create(&archive_path)
-    .map_err(|e| format!("at opening {:?}: {e}", &archive_path))?;
+  let mut fw = fs::File::create(output)
+    .map_err(|e| format!("at opening {output:?}: {e}"))?;
   // Writing index
   let index_data = fs::read(&db_path).map_err(|e| format!("at reading index db file: {e}"))?;
   let _ = fs::remove_file(&db_path)
@@ -423,14 +471,11 @@ fn create_archive_inner(
     .map_err(|e| format!("at writing index len: {e}"))?;
   fw.write(&compressed_index_data).map_err(|e| format!("at writing index: {e}"))?;
   // Writing blob
-  for block_id in 0..block_count {
-    let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
-    let mut fr = fs::File::open(&block_file_name)
-      .map_err(|e| format!("at opening tempfile {:?}: {e}", &block_file_name))?;
-    io::copy(&mut fr, &mut fw).map_err(|e| format!("at writing to archive: {e}"))?;
-    fs::remove_file(&block_file_name)
-      .map_err(|e| format!("at removing tempfile {:?}: {e}", &block_file_name))?;
-  }
+  let mut fr = fs::File::open(&temp_blob)
+    .map_err(|e| format!("at opening tempfile {:?}: {e}", &temp_blob))?;
+  io::copy(&mut fr, &mut fw).map_err(|e| format!("at writing to archive: {e}"))?;
+  fs::remove_file(&temp_blob)
+    .map_err(|e| format!("at removing tempfile {:?}: {e}", &temp_blob))?;
   fw.flush().map_err(|e| format!("at flushing data to archive: {e}"))?;
 
   Ok(())

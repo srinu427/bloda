@@ -301,8 +301,9 @@ pub fn create_archive(
         .read(&mut block[block_filled_len..])
         .map_err(|e| format!("at reading from {:?}: {e}", &f_path))?;
       block_filled_len += size_read;
+      println!("{block_id} filled size: {block_filled_len}");
     }
-    println!("{block_id} filled size: {block_filled_len}");
+    
     block = block[..block_filled_len].to_vec();
     let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
     let compressed_data = if compression_type == "NONE"{

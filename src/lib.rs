@@ -255,6 +255,7 @@ fn create_header_and_work(
       block_file_infos[curr_block_no as usize]
         .push((entry_name.clone(), path.clone(), curr_block_offset));
       let rem_block_size = block_size - curr_block_offset;
+      println!("remaining size in block {curr_block_no}: {rem_block_size}");
       if rem_block_size as i64 > rem_file_size{
         curr_block_offset += rem_file_size as i32;
         break;
@@ -291,6 +292,9 @@ pub fn create_archive(
     let mut block = vec![0u8; block_size as usize];
     let mut block_filled_len = 0;
     for (_, f_path, offset) in block_info{
+      if block_id == 0{
+        println!()
+      }
       let mut fr =
         fs::File::open(&f_path).map_err(|e| format!("at opening: {:?}: {e}", &f_path))?;
       fr

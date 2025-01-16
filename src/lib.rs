@@ -45,13 +45,9 @@ impl ArchiveReader{
       .load(&mut conn)
       .map_err(|e| format!("at getting block infos: {e}"))?;
 
-    println!("blocks: {blocks:?}");
-
     let block_offsets = (0..blocks.len())
       .map(|i| blocks[0..i].iter().map(|x| x.size as u64).sum::<u64>())
       .collect::<Vec<_>>();
-
-    println!("block_offsets: {block_offsets:?}");
 
     Ok(Self {
       header_path: header.to_owned(),
@@ -171,7 +167,6 @@ impl ArchiveReader{
         }
         let mut fw = fs::File::create(&out_name)
           .map_err(|e| format!("at opening {:?}: {e}", &out_name))?;
-        println!("file_info: {file_info:?}");
         fw
           .write(&start_block_data[file_info.start_offset as usize..file_info.end_offset as _])
           .map_err(|e| format!("at writing to {:?}: {e}", &out_name))?;
@@ -250,13 +245,11 @@ fn create_header_and_work(
     let start_block = curr_block_no;
     let start_offset = curr_block_offset;
     let entry_name = path.strip_prefix(dir).unwrap_or(path).to_string_lossy().to_string();
-    println!("size of {entry_name}: {size}");
     let mut rem_file_size = size;
     loop {
       block_file_infos[curr_block_no as usize]
         .push((path.clone(), size - rem_file_size));
       let rem_block_size = block_size - curr_block_offset;
-      println!("remaining size in block {curr_block_no}: {rem_block_size}");
       if rem_block_size as i64 > rem_file_size{
         curr_block_offset += rem_file_size as i32;
         break;

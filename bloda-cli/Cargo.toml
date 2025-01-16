@@ -1,0 +1,8 @@
+[package]
+name = "bda"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bloda-sys = { path = "../bloda-sys"}
+clap = { version = "4.5.26", features = ["derive"] }

@@ -249,7 +249,7 @@ fn create_header_and_work(
     let start_block = curr_block_no;
     let start_offset = curr_block_offset;
     let entry_name = path.strip_prefix(dir).unwrap_or(path).to_string_lossy().to_string();
-    
+    println!("size of {entry_name}: {size}");
     let mut rem_file_size = size;
     loop {
       block_file_infos[curr_block_no as usize]
@@ -292,9 +292,6 @@ pub fn create_archive(
     let mut block = vec![0u8; block_size as usize];
     let mut block_filled_len = 0;
     for (_, f_path, offset) in block_info{
-      if block_id == 0{
-        println!()
-      }
       let mut fr =
         fs::File::open(&f_path).map_err(|e| format!("at opening: {:?}: {e}", &f_path))?;
       fr

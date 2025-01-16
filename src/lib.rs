@@ -210,7 +210,7 @@ impl ArchiveReader{
 fn create_header_and_work(
   dir: &Path,
   block_size: i32,
-) -> (Vec<ArchiveFileEntry>, Vec<ArchiveFolderLeafEntry>, Vec<Vec<(String, PathBuf, i32)>>){
+) -> (Vec<ArchiveFileEntry>, Vec<ArchiveFolderLeafEntry>, Vec<Vec<(String, PathBuf, i64)>>){
   let dir_entry_list = WalkDir::new(dir)
     .into_iter()
     .filter_map(|x| x.inspect_err(|e| eprintln!("error listing entry: {e}. skipping it")).ok())
@@ -253,7 +253,7 @@ fn create_header_and_work(
     let mut rem_file_size = size;
     loop {
       block_file_infos[curr_block_no as usize]
-        .push((entry_name.clone(), path.clone(), curr_block_offset));
+        .push((entry_name.clone(), path.clone(), size - rem_file_size));
       let rem_block_size = block_size - curr_block_offset;
       println!("remaining size in block {curr_block_no}: {rem_block_size}");
       if rem_block_size as i64 > rem_file_size{

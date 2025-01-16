@@ -399,6 +399,20 @@ pub fn create_archive(
   Ok(())
 }
 
+pub fn create_archive_with_thread_count(
+  dir: &Path,
+  output: &Path,
+  compression_type: &str,
+  threads: u8,
+  block_size: Option<u32>
+) -> Result<(), String>{
+  let t_pool = rayon::ThreadPoolBuilder::new()
+    .num_threads(threads as _)
+    .build()
+    .map_err(|e| format!("at creating thread pool: {e}"))?;
+  t_pool.install(|| {create_archive(dir, output, compression_type, threads, block_size)})
+}
+
 pub fn decompress_archive(bdadb: &Path, bdablob: &Path, out_dir: &Path) -> Result<(), String>{
   let archive = ArchiveReader::new(bdadb, bdablob).map_err(|e| format!("invalid archive: {e}"))?;
   archive.extract_files(".*", out_dir, true).map_err(|e| format!("at extracting: {e}"))?;

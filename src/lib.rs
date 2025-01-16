@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}};
 
 use diesel::{Connection, QueryDsl, RunQueryDsl, SelectableHelper};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use sql_structs::{ArchiveBlockInfo, ArchiveFileEntry, ArchiveFolderLeafEntry};
 use walkdir::WalkDir;
 
@@ -320,26 +321,21 @@ pub fn create_archive(
   let block_count = work.len();
 
   let block_temp_file_prefix = format!("{}.tempblock", output.to_string_lossy());
-  // Thread pool
-  let t_pool = rayon::ThreadPoolBuilder::new()
-    .num_threads(threads as usize)
-    .build()
-    .map_err(|e| format!("error initializing thread pool: {e}"))?;
-  
-  t_pool.scope(|s| {
-    for (block_id, block_info) in work.into_iter().enumerate() {
+
+  work
+    .into_par_iter()
+    .enumerate()
+    .map(|(block_id, block_info)| {
       let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
-      s.spawn(move |_| {
-        let _ = create_and_compress_block(
-          block_size,
-          block_info,
-          compression_type,
-          &block_file_name
-        )
-          .inspect_err(|e| eprintln!("{e}"));
-      });
-    }
-  });
+      create_and_compress_block(
+        block_size,
+        block_info,
+        compression_type,
+        &block_file_name
+      )
+        .map_err(|e| format!("at making block {block_id}: {e}"))
+    })
+    .collect::<Result<Vec<_>, String>>()?;
 
   let blob_path = PathBuf::from(format!("{}.bdablob", output.to_string_lossy()));
   let mut fw = fs::File::create(&blob_path)

@@ -302,11 +302,10 @@ pub fn create_and_compress_block(
   Ok(())
 }
 
-pub fn create_archive(
+fn create_archive_inner(
   dir: &Path,
   output: &Path,
   compression_type: &str,
-  threads: u8,
   block_size: Option<u32>
 ) -> Result<(), String>{
   let block_size = block_size.unwrap_or(DEFAULT_BLOCK_SIZE) as i32;
@@ -399,7 +398,7 @@ pub fn create_archive(
   Ok(())
 }
 
-pub fn create_archive_with_thread_count(
+pub fn create_archive(
   dir: &Path,
   output: &Path,
   compression_type: &str,
@@ -410,7 +409,7 @@ pub fn create_archive_with_thread_count(
     .num_threads(threads as _)
     .build()
     .map_err(|e| format!("at creating thread pool: {e}"))?;
-  t_pool.install(|| {create_archive(dir, output, compression_type, threads, block_size)})
+  t_pool.install(|| {create_archive_inner(dir, output, compression_type, block_size)})
 }
 
 pub fn decompress_archive(bdadb: &Path, bdablob: &Path, out_dir: &Path) -> Result<(), String>{

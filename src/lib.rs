@@ -210,7 +210,7 @@ impl ArchiveReader{
 fn create_header_and_work(
   dir: &Path,
   block_size: i32,
-) -> (Vec<ArchiveFileEntry>, Vec<ArchiveFolderLeafEntry>, Vec<Vec<(String, PathBuf, i64)>>){
+) -> (Vec<ArchiveFileEntry>, Vec<ArchiveFolderLeafEntry>, Vec<Vec<(PathBuf, i64)>>){
   let dir_entry_list = WalkDir::new(dir)
     .into_iter()
     .filter_map(|x| x.inspect_err(|e| eprintln!("error listing entry: {e}. skipping it")).ok())
@@ -253,7 +253,7 @@ fn create_header_and_work(
     let mut rem_file_size = size;
     loop {
       block_file_infos[curr_block_no as usize]
-        .push((entry_name.clone(), path.clone(), size - rem_file_size));
+        .push((path.clone(), size - rem_file_size));
       let rem_block_size = block_size - curr_block_offset;
       println!("remaining size in block {curr_block_no}: {rem_block_size}");
       if rem_block_size as i64 > rem_file_size{
@@ -277,6 +277,37 @@ fn create_header_and_work(
   (archive_file_entries, leaf_dirs, block_file_infos)
 }
 
+pub fn create_and_compress_block(
+  block_size: i32,
+  block_data_info: Vec<(PathBuf, i64)>,
+  compression_type: &str,
+  output: &Path,
+) -> Result<(), String>{
+  let mut block = vec![0u8; block_size as usize];
+  let mut block_filled_len = 0;
+  for (f_path, offset) in block_data_info{
+    let mut fr =
+      fs::File::open(&f_path).map_err(|e| format!("at opening: {:?}: {e}", &f_path))?;
+    fr
+      .seek(io::SeekFrom::Start(offset as _))
+      .map_err(|e| format!("at seeking to {offset} in {:?}: {e}", &f_path))?;
+    let size_read = fr
+      .read(&mut block[block_filled_len..])
+      .map_err(|e| format!("at reading from {:?}: {e}", &f_path))?;
+    block_filled_len += size_read;
+  }
+
+  block = block[..block_filled_len].to_vec();
+    let compressed_data = if compression_type == "NONE"{
+      block
+    } else {
+      compress_utils::compress_data(&block, compression_type)?
+    };
+    fs::write(output, &compressed_data)
+      .map_err(|e| format!("at writing to tempfile: {output:?}: {e}"))?;
+  Ok(())
+}
+
 pub fn create_archive(
   dir: &Path,
   output: &Path,
@@ -286,42 +317,36 @@ pub fn create_archive(
 ) -> Result<(), String>{
   let block_size = block_size.unwrap_or(DEFAULT_BLOCK_SIZE) as i32;
   let (files, folder_leaves, work) = create_header_and_work(dir, block_size);
+  let block_count = work.len();
 
   let block_temp_file_prefix = format!("{}.tempblock", output.to_string_lossy());
-  for (block_id, block_info) in work.iter().enumerate() {
-    let mut block = vec![0u8; block_size as usize];
-    let mut block_filled_len = 0;
-    for (_, f_path, offset) in block_info{
-      let mut fr =
-        fs::File::open(&f_path).map_err(|e| format!("at opening: {:?}: {e}", &f_path))?;
-      fr
-        .seek(io::SeekFrom::Start(*offset as _))
-        .map_err(|e| format!("at seeking to {offset} in {:?}: {e}", &f_path))?;
-      let size_read = fr
-        .read(&mut block[block_filled_len..])
-        .map_err(|e| format!("at reading from {:?}: {e}", &f_path))?;
-      block_filled_len += size_read;
-      println!("{block_id} filled size: {block_filled_len}");
+  // Thread pool
+  let t_pool = rayon::ThreadPoolBuilder::new()
+    .num_threads(threads as usize)
+    .build()
+    .map_err(|e| format!("error initializing thread pool: {e}"))?;
+  
+  t_pool.scope(|s| {
+    for (block_id, block_info) in work.into_iter().enumerate() {
+      let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
+      s.spawn(move |_| {
+        let _ = create_and_compress_block(
+          block_size,
+          block_info,
+          compression_type,
+          &block_file_name
+        )
+          .inspect_err(|e| eprintln!("{e}"));
+      });
     }
-    
-    block = block[..block_filled_len].to_vec();
-    let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
-    let compressed_data = if compression_type == "NONE"{
-      block
-    } else {
-      compress_utils::compress_data(&block, compression_type)?
-    };
-    println!("{block_id} compressed size: {}", compressed_data.len());
-    fs::write(&block_file_name, &compressed_data)
-      .map_err(|e| format!("at writing to tempfile: {:?}: {e}", &block_file_name))?;
-  }
+  });
 
   let blob_path = PathBuf::from(format!("{}.bdablob", output.to_string_lossy()));
   let mut fw = fs::File::create(&blob_path)
     .map_err(|e| format!("at opening {:?}: {e}", &blob_path))?;
 
-  let mut block_sizes = Vec::with_capacity(work.len());
-  for block_id in 0..work.len() {
+  let mut block_sizes = Vec::with_capacity(block_count);
+  for block_id in 0..block_count {
     let block_file_name = PathBuf::from(format!("{block_temp_file_prefix}.{block_id}"));
     let mut fr = fs::File::open(&block_file_name)
       .map_err(|e| format!("at opening tempfile {:?}: {e}", &block_file_name))?;
@@ -332,6 +357,8 @@ pub fn create_archive(
   }
 
   let db_path = format!("{}.bdadb", output.to_string_lossy());
+  fs::remove_file(&db_path)
+    .map_err(|e| format!("at deleting existing index file {}: {e}", &db_path))?;
   let mut conn = diesel::SqliteConnection::establish(&db_path)
     .map_err(|e| format!("at opening {}: {e}", &db_path))?;
   diesel::sql_query("CREATE TABLE files(

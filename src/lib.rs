@@ -353,8 +353,10 @@ pub fn create_archive(
   }
 
   let db_path = format!("{}.bdadb", output.to_string_lossy());
-  fs::remove_file(&db_path)
+  if Path::new(&db_path).is_file(){
+    fs::remove_file(&db_path)
     .map_err(|e| format!("at deleting existing index file {}: {e}", &db_path))?;
+  }
   let mut conn = diesel::SqliteConnection::establish(&db_path)
     .map_err(|e| format!("at opening {}: {e}", &db_path))?;
   diesel::sql_query("CREATE TABLE files(

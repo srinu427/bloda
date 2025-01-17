@@ -24,7 +24,7 @@ impl ArchiveReader{
 
 #[pyfunction]
 fn open_archive(archive_path: PathBuf) -> PyResult<ArchiveReader> {
-    bloda_sys::ArchiveReader::new(&archive_path)
+    bloda_sys::ArchiveReader::new(&archive_path, None)
         .map(|x| ArchiveReader {inner: x})
         .map_err(PyException::new_err)
 }
@@ -36,7 +36,7 @@ fn create_archive(
     output_file_name: PathBuf,
     compression_type: String,
     threads: u32,
-    block_size: Option<u32>
+    block_size: Option<u64>
 ) -> PyResult<()> {
     bloda_sys::create_archive(
         &input_dir,

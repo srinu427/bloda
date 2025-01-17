@@ -23,14 +23,9 @@ Available releases can be downloaded for your platform of choice on the [Release
 
 ## Building
 
-If desired, you can build s3-seek-archive yourself. You will need a working `Rust` and `Cargo` setup. [Rustup](https://rustup.rs/) is the simplest way to set this up on either Windows, Mac or Linux.
+[CLI](bloda-cli/README.md)
 
-Once the prerequisites have been installed, compilation on your native platform is as simple as running the following in a terminal:
-
-```
-cd rust-compressor
-cargo build --release
-```
+[Python Library](bloda-pyo3/README.md)
 
 ## WebAssembly
 

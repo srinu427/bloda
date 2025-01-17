@@ -415,6 +415,7 @@ fn create_archive_inner(
   }
 
   let async_rt = tokio::runtime::Builder::new_multi_thread()
+    .max_blocking_threads(128)
     .enable_all()
     .build()
     .map_err(|e| format!("at building async runtime: {e}"))?;

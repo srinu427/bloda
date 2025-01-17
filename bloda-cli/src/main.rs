@@ -7,7 +7,7 @@ struct CompressArgs {
   /// Input directory name. If a file is provided, empty archive is generated
   #[arg(long, short = 'i')]
   input_path: PathBuf,
-  /// Output file's name. Expected extention name is .bda or bdadb
+  /// Output file's name. Expected extention name is .bda
   #[arg(long, short = 'o')]
   output_path: PathBuf,
   /// Number of block to compress in parallel

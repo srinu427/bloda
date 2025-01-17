@@ -1,35 +1,30 @@
-# BLOcked Directory Archive
+# BLOcked Directory Archive Python Library
 
 
 An archival tool to make handling directories with huge number of small files in Network file systems better.
 
-## Features
-
-- Reduce number of files to be uploaded/copied to Network FS by archiving them to 2 files
-- Reduce the storage used without losing the ability to get individual files from storage
-- Designed with source code and coverage reports as a focus, but can be used with any directories with large number of small files
-- Multiplatform support - The tool is compatible with Linux, macOS and Windows
-
-
-## Download
-
-Available releases can be downloaded for your platform of choice on the [Releases](https://github.com/zaszi/rust-template/releases) page. These are merely provided as an example on how the asset uploading works, and aren't actually useful by themselves beyond what a `hello world` program can provide.
-
 ## Usage
 
-[CLI](bloda-cli/README.md)
+WIP
 
-[Python Library](bloda-pyo3/README.md)
+## Installing
 
-## Building
+You need a Python 3.8+ environment to build and install the library. You can follow the instructions in the [official python wiki](https://wiki.python.org/moin/BeginnersGuide/Download) to download Python.
 
-If desired, you can build s3-seek-archive yourself. You will need a working `Rust` and `Cargo` setup. [Rustup](https://rustup.rs/) is the simplest way to set this up on either Windows, Mac or Linux.
+Virtual environments are recommended to not pollute your global Python installation, you can follow the instructions from this official [tutorial](https://docs.python.org/3/tutorial/venv.html)
 
-Once the prerequisites have been installed, compilation on your native platform is as simple as running the following in a terminal:
+You also working `Rust` and `Cargo` setup. [Rustup](https://rustup.rs/) is the simplest way to set this up on either Windows, Mac or Linux.
+
+You will need libsqlite3 installed during build/install time.
+
+You will also optionally need liblzma and libzstd installed to use those compression formats in runtime.
+
+Once the prerequisites have been installed, and your favourite Python virtual environment is 'sourced', run the following command to install the package:
 
 ```
-cd rust-compressor
-cargo build --release
+git clone https://github.com/srinu427/bloda.git
+cd bloda/bloda-pyo3
+pip install .
 ```
 
 ## WebAssembly

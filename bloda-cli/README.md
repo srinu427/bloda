@@ -64,6 +64,7 @@ Once the prerequisites have been installed, compilation on your native platform 
 git clone https://github.com/srinu427/bloda.git
 cd bloda/bloda-cli
 cargo build --release
+# Checking if library is present
 ls target/release/bloda
 ```
 

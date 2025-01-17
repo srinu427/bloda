@@ -20,7 +20,7 @@ struct CompressArgs {
   /// Max size of file in bytes to be processed in memory instead of writing to temp file.
   /// Use 0 to reduce RAM usage
   #[arg(long, short = 'b', default_value_t = 4 * 1024 * 1024)]
-  block_size: u32,
+  block_size: u64,
 }
 
 #[derive(Args)]

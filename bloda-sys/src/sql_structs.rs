@@ -3,10 +3,9 @@ use diesel::prelude::{Insertable, Queryable, Selectable};
 diesel::table! {
   files (name) {
     name -> Text,
-    start_block -> BigInt,
-    start_offset -> Integer,
-    end_block -> BigInt,
-    end_offset -> Integer,
+    block -> BigInt,
+    offset -> BigInt,
+    size -> BigInt,
   }
 }
 
@@ -19,7 +18,7 @@ diesel::table! {
 diesel::table! {
   blocks (id) {
     id -> BigInt,
-    size -> Integer,
+    size -> BigInt,
     offset -> BigInt,
     compression_type -> Text,
   }
@@ -31,10 +30,9 @@ diesel::table! {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ArchiveFileEntry{
   pub name: String,
-  pub start_block: i64,
-  pub start_offset: i32,
-  pub end_block: i64,
-  pub end_offset: i32,
+  pub block: i64,
+  pub offset: i64,
+  pub size: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -51,7 +49,7 @@ pub struct ArchiveFolderLeafEntry{
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ArchiveBlockInfo{
   pub id: i64,
-  pub size: i32,
+  pub size: i64,
   pub offset: i64,
   pub compression_type: String,
 }

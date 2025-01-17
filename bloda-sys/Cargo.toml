@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bytes = "1.9.0"
 diesel = { version = "2.2.6", features = ["sqlite"] }
 lz4_flex = "0.11.3"
 rayon = "1.10.0"
 regex = "1.11.1"
 rust-lzma = "0.6.0"
 tempfile = "3.15.0"
+tokio = { version = "1.43.0", features = ["fs", "io-std", "io-util", "rt", "rt-multi-thread", "sync"] }
 walkdir = "2.5.0"
 zstd = "0.13.2"

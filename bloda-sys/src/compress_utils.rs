@@ -46,7 +46,7 @@ pub fn compress_data<R: Read, W: Write>(
         .map_err(|e| format!("at starting lzma writer: {e}"))?;
       let size = io::copy(&mut input_data, &mut writer)
         .map_err(|e| format!("at compressing: {e}"))?;
-      writer.flush().map_err(|e| format!("at flushing: {e}"))?;
+      writer.finish().map_err(|e| format!("at finishing: {e}"))?;
       Ok(size)
     }
     "LZ4" => {

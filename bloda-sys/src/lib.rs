@@ -1,8 +1,9 @@
-use std::{collections::HashMap, fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
+use std::{collections::HashMap, fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}, sync::Arc};
 
 use diesel::{Connection, QueryDsl, RunQueryDsl, SelectableHelper};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use sql_structs::{ArchiveBlockInfo, ArchiveFileEntry, ArchiveFolderLeafEntry};
+use tokio::io::AsyncReadExt;
 
 const DEFAULT_BLOCK_SIZE: u64 = 64 * 1024 * 1024; // 64MB
 const DEFAULT_MAX_MEM_EXTRACT_SIZE: u64 = 16 * 1024 * 1024; // 16MB
@@ -333,7 +334,24 @@ fn distribute_files_to_blocks(
   (block_infos, folder_leaves)
 }
 
-fn compress_block(
+async fn write_file_to_buffer(
+  buffer: Arc<tokio::sync::Mutex<Vec<u8>>>,
+  file_path: PathBuf,
+  offset: i64,
+  size: i64,
+) -> Result<(), String>{
+  let mut fr = tokio::fs::File::open(&file_path)
+    .await
+    .map_err(|e| format!("at opening {:?}: {e}", &file_path))?;
+  let mut buffer_lock = buffer.lock().await;
+  fr
+    .read(&mut buffer_lock[offset as usize..(offset + size) as usize])
+    .await
+    .map_err(|e| format!("at loading file to buffer: {e}"))?;
+  Ok(())
+}
+
+async fn compress_block(
   output: &Path,
   block_files: &[(PathBuf, i64, i64)],
   compression_type: &str
@@ -348,14 +366,22 @@ fn compress_block(
     }
   }
   let total_size = block_files.iter().map(|x| x.2).sum::<i64>();
-  let mut block_data = vec![0u8; total_size as usize];
+  let block_data = Arc::new(tokio::sync::Mutex::new(vec![0u8; total_size as usize]));
+
+  let mut join_set = tokio::task::JoinSet::new();
   for (path, offset, size) in block_files{
-    let mut fr = fs::File::open(path).map_err(|e| format!("at opening {path:?}: {e}"))?;
-    fr.read(&mut block_data[*offset as usize..(*offset + size) as usize])
-      .map_err(|e| format!("at adding {path:?} to buffer: {e}"))?;
+    let block_data_clone = block_data.clone();
+    let path = path.to_owned();
+    let offset = *offset;
+    let size = *size;
+    join_set.spawn(async move{
+      write_file_to_buffer(block_data_clone, path, offset, size).await
+    });
   }
+  join_set.join_all().await;
   let mut compressed_block_data = Vec::<u8>::new();
-  compress_utils::compress_data(&block_data[..], &mut compressed_block_data, compression_type)?;
+  let block_data_lock = block_data.lock().await;
+  compress_utils::compress_data(&block_data_lock[..], &mut compressed_block_data, compression_type)?;
   fs::write(output, &compressed_block_data).map_err(|e| format!("at writing: {e}"))?;
   Ok(compressed_block_data.len() as _)
 } 
@@ -369,26 +395,6 @@ fn create_archive_inner(
   let max_multi_block_size = max_multi_block_size.unwrap_or(DEFAULT_BLOCK_SIZE) as i64;
   let (block_files, folder_leaves) = distribute_files_to_blocks(dir, max_multi_block_size);
 
-  let block_sizes = block_files
-    .iter()
-    .enumerate()
-    .map(|(i, x)| {
-      let block_path = output.with_extension(format!("temp.{i}"));
-      compress_block(&block_path, x, compression_type)
-    })
-    .collect::<Result<Vec<u64>, String>>()?;
-
-  let mut block_infos = vec![];
-  let mut curr_offset = 0;
-  for (i, size) in block_sizes.iter().enumerate(){
-    block_infos.push(ArchiveBlockInfo{
-      id: i as _,
-      size: *size as _,
-      offset: curr_offset,
-      compression_type: compression_type.to_string()
-    });
-    curr_offset += *size as i64;
-  }
   let folder_leaf_infos = folder_leaves
     .iter()
     .map(|x| ArchiveFolderLeafEntry{
@@ -406,6 +412,31 @@ fn create_archive_inner(
         size: *size
       });
     }
+  }
+
+  let async_rt = tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .build()
+    .map_err(|e| format!("at building async runtime: {e}"))?;
+  let block_sizes = block_files
+    .into_par_iter()
+    .enumerate()
+    .map(|(i, x)| {
+      let block_path = output.with_extension(format!("temp.{i}"));
+      async_rt.block_on(compress_block(&block_path, &x, compression_type))
+    })
+    .collect::<Result<Vec<u64>, String>>()?;
+
+  let mut block_infos = vec![];
+  let mut curr_offset = 0;
+  for (i, size) in block_sizes.iter().enumerate(){
+    block_infos.push(ArchiveBlockInfo{
+      id: i as _,
+      size: *size as _,
+      offset: curr_offset,
+      compression_type: compression_type.to_string()
+    });
+    curr_offset += *size as i64;
   }
   let blob_path = output.with_extension("bdablob");
   let mut fw = fs::File::create(&blob_path).map_err(|e| format!("at creating blob: {e}"))?;
@@ -426,7 +457,7 @@ fn create_archive_inner(
     .map_err(|e| format!("at opening output file {output:?}: {e}"))?;
   let mut compressed_index = Vec::<u8>::new();
   let fr = fs::File::open(&db_path_name).map_err(|e| format!("at reading index db: {e}"))?;
-  compress_utils::compress_data(fr, &mut compressed_index, compression_type)?;
+  compress_utils::compress_data(fr, &mut compressed_index, "LZ4")?;
   fw
     .write(&compressed_index.len().to_be_bytes())
     .map_err(|e| format!("at writing index len: {e}"))?;

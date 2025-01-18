@@ -13,10 +13,9 @@ You need a Python 3.8+ environment to build and install the library. You can fol
 
 Virtual environments are recommended to not pollute your global Python installation, you can follow the instructions from this official [tutorial](https://docs.python.org/3/tutorial/venv.html)
 
-You also working `Rust` and `Cargo` setup. [Rustup](https://rustup.rs/) is the simplest way to set this up on either Windows, Mac or Linux.
+You also need a working `Rust` and `Cargo` setup. [Rustup](https://rustup.rs/) is the simplest way to set this up on either Windows, Mac or Linux.
 
 You will need libsqlite3 installed during build/install time.
-
 You will also optionally need liblzma and libzstd installed to use those compression formats in runtime.
 
 Once the prerequisites have been installed, and your favourite Python virtual environment is 'sourced', run the following command to install the package:

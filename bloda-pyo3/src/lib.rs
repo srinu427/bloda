@@ -66,7 +66,7 @@ fn decompress_archive(
 }
 
 #[pymodule]
-fn bloda_pyo3(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn bloda(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(open_archive, m)?)?;
     m.add_function(wrap_pyfunction!(create_archive, m)?)?;
     m.add_function(wrap_pyfunction!(decompress_archive, m)?)?;

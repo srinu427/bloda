@@ -13,6 +13,10 @@ impl ArchiveReader{
         Ok(self.inner.list_all_entries())
     }
 
+    fn list_entries(&self, re_pattern: String) -> PyResult<Vec<String>>{
+        self.inner.list_entries(&re_pattern).map_err(PyException::new_err)
+    }
+
     fn extract_file(&self, name: String, output: PathBuf) -> PyResult<()>{
         self.inner.extract_file(&name, &output).map_err(PyException::new_err)
     }

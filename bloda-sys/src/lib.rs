@@ -11,6 +11,11 @@ const DEFAULT_MAX_MEM_EXTRACT_SIZE: u64 = 16 * 1024 * 1024; // 16MB
 mod compress_utils;
 mod sql_structs;
 
+enum ArchiveEntry{
+  File{full_path: String},
+  Folder{full_path: String, children: Vec<ArchiveEntry>}
+}
+
 pub struct ArchiveReader{
   archive_path: PathBuf,
   max_mem_extract_size: i64,
@@ -92,7 +97,7 @@ impl ArchiveReader{
     files
   }
 
-  pub fn list_entries(&self, regex_pattern: &str) -> Result<Vec<String>, String>{
+  pub fn list_entries_re(&self, regex_pattern: &str) -> Result<Vec<String>, String>{
     let re = regex::Regex::new(regex_pattern).map_err(|e| format!("invalid re pattern: {e}"))?;
     let mut  dir_leaves = self
       .folder_leaves
@@ -104,6 +109,32 @@ impl ArchiveReader{
       .files
       .values()
       .filter(|x| re.is_match(&x.name))
+      .map(|x| x.name.clone())
+      .collect::<Vec<_>>();
+    files.append(&mut dir_leaves);
+    Ok(files)
+  }
+
+  pub fn list_dir(&self, dir_name: &str) -> Result<Vec<String>, String>{
+    let re_pattern = dir_name.strip_suffix("/").unwrap_or(dir_name);
+    let re_pattern = re_pattern.strip_suffix("\\").unwrap_or(re_pattern);
+    let re_pattern = re_pattern.replace("*", "^[/\\]*");
+    let file_pattern = format!("^{}[\\/]^[/\\]*$", &re_pattern);
+    let folder_leaf_pattern = format!("^{}$", &re_pattern);
+    let file_re = regex::Regex::new(&file_pattern)
+      .map_err(|e| format!("invalid re pattern: {e}"))?;
+    let folder_leaf_re = regex::Regex::new(&folder_leaf_pattern)
+      .map_err(|e| format!("invalid re pattern: {e}"))?;
+    let mut  dir_leaves = self
+      .folder_leaves
+      .values()
+      .filter(|x| folder_leaf_re.is_match(&x.name))
+      .map(|x| x.name.clone())
+      .collect::<Vec<_>>();
+    let mut files = self
+      .files
+      .values()
+      .filter(|x| file_re.is_match(&x.name))
       .map(|x| x.name.clone())
       .collect::<Vec<_>>();
     files.append(&mut dir_leaves);

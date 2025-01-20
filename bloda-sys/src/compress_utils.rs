@@ -53,7 +53,7 @@ pub fn compress_data<R: Read, W: Write>(
       let mut writer = lz4_flex::frame::FrameEncoder::new(output_stream);
       let size = io::copy(&mut input_data, &mut writer)
         .map_err(|e| format!("at compressing: {e}"))?;
-      writer.flush().map_err(|e| format!("at flushing: {e}"))?;
+      writer.finish().map_err(|e| format!("at flushing: {e}"))?;
       Ok(size)
     },
     "ZSTD" => {
@@ -61,7 +61,7 @@ pub fn compress_data<R: Read, W: Write>(
         .map_err(|e| format!("at initializing zstd compressor: {e}"))?;
       let size = io::copy(&mut input_data, &mut writer)
         .map_err(|e| format!("at compressing: {e}"))?;
-      writer.flush().map_err(|e| format!("at flushing: {e}"))?;
+      writer.finish().map_err(|e| format!("at finishing: {e}"))?;
       Ok(size)
     },
     _ => {

@@ -81,7 +81,7 @@ impl ArchiveReader{
     let re_pattern = name.strip_suffix("/").unwrap_or(name);
     let re_pattern = re_pattern.strip_suffix("\\").unwrap_or(re_pattern);
     let file_pattern = format!(r#"^{}$"#, &re_pattern);
-    let folder_pattern = format!(r#"^({}[/\\].*$"#, &re_pattern);
+    let folder_pattern = format!(r#"^{}[/\\].*$"#, &re_pattern);
     let file_re = regex::Regex::new(&file_pattern)
       .inspect_err(|e| eprintln!("invalid file re pattern: {e}"))
       .ok()?;

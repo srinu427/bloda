@@ -113,17 +113,17 @@ impl ArchiveReader{
   pub fn list_dir(&self, dir_name: &str) -> Result<Vec<String>, String>{
     let re_pattern = dir_name.strip_suffix("/").unwrap_or(dir_name);
     let re_pattern = re_pattern.strip_suffix("\\").unwrap_or(re_pattern);
-    let re_pattern = re_pattern.replace("*", "[^/\\]*");
+    let re_pattern = re_pattern.replace("*", r#"[^/\]*"#);
     let file_pattern = if re_pattern != "" {
-      format!("^{}[\\/][^/\\]*$", &re_pattern)
+      format!(r#"^{}[\/][^/\]*$"#, &re_pattern)
     } else {
-      format!("^[^/\\]*$")
+      format!(r#"^[^/\\]*$"#)
     };
-    let folder_leaf_pattern = format!("^{}$", &re_pattern);
+    let folder_leaf_pattern = format!(r#"^{}$"#, &re_pattern);
     let file_re = regex::Regex::new(&file_pattern)
-      .map_err(|e| format!("invalid re pattern: {e}"))?;
+      .map_err(|e| format!("invalid file re pattern: {e}"))?;
     let folder_leaf_re = regex::Regex::new(&folder_leaf_pattern)
-      .map_err(|e| format!("invalid re pattern: {e}"))?;
+      .map_err(|e| format!("invalid folder re pattern: {e}"))?;
     let mut  dir_leaves = self
       .folder_leaves
       .values()

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}, sync::Arc};
+use std::{collections::{HashMap, HashSet}, fs, io::{self, Read, Seek, Write}, path::{Path, PathBuf}, sync::Arc};
 
 use diesel::{Connection, QueryDsl, RunQueryDsl, SelectableHelper};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
@@ -146,8 +146,10 @@ impl ArchiveReader{
     let mut dirs = self
       .files
       .values()
-      .filter_map(|x| folder_re.captures(&x.name).map(|c| c[0].to_string()))
-      .map(|x| (x, "FOLDER".to_string()))
+      .filter_map(|x| folder_re.captures(&x.name).map(|c| c[1].to_string()))
+      .collect::<HashSet::<_>>()
+      .iter()
+      .map(|x| (x.clone(), "FOLDER".to_string()))
       .collect::<Vec<_>>();
     files.append(&mut dirs);
     files.append(&mut dir_leaves);

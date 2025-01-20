@@ -77,6 +77,32 @@ impl ArchiveReader{
     })
   }
 
+  pub fn entry_type(&self, name: &str) -> Option<String> {
+    let re_pattern = name.strip_suffix("/").unwrap_or(name);
+    let re_pattern = re_pattern.strip_suffix("\\").unwrap_or(re_pattern);
+    let file_pattern = format!(r#"^{}$"#, &re_pattern);
+    let folder_pattern = format!(r#"^({}[/\\].*$"#, &re_pattern);
+    let file_re = regex::Regex::new(&file_pattern)
+      .inspect_err(|e| eprintln!("invalid file re pattern: {e}"))
+      .ok()?;
+    let folder_re = regex::Regex::new(&folder_pattern)
+      .inspect_err(|e| eprintln!("invalid folder re pattern: {e}"))
+      .ok()?;
+    if let Some(_) = self.files.iter().find(|x| file_re.is_match(x.0)){
+      return Some("FILE".to_string());
+    }
+    if let Some(_) = self.files.iter().find(|x| folder_re.is_match(x.0)){
+      return Some("FOLDER".to_string());
+    }
+    if let Some(_) = self
+      .folder_leaves
+      .iter()
+      .find(|x| folder_re.is_match(x.0) || file_re.is_match(x.0)){
+      return Some("FOLDER".to_string());
+    }
+    None
+  }
+
   pub fn list_all_entries(&self) -> Vec<String>{
     let mut  dir_leaves = self
       .folder_leaves

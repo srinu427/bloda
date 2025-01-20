@@ -9,6 +9,10 @@ struct ArchiveReader{
 
 #[pymethods]
 impl ArchiveReader{
+    fn entry_type(&self, name: String) -> PyResult<Option<String>>{
+        PyResult::Ok(self.inner.entry_type(&name))
+    }
+
     fn list_all_entries(&self) -> PyResult<Vec<String>>{
         Ok(self.inner.list_all_entries())
     }

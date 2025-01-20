@@ -11,11 +11,6 @@ const DEFAULT_MAX_MEM_EXTRACT_SIZE: u64 = 16 * 1024 * 1024; // 16MB
 mod compress_utils;
 mod sql_structs;
 
-enum ArchiveEntry{
-  File{full_path: String},
-  Folder{full_path: String, children: Vec<ArchiveEntry>}
-}
-
 pub struct ArchiveReader{
   archive_path: PathBuf,
   max_mem_extract_size: i64,
@@ -118,8 +113,12 @@ impl ArchiveReader{
   pub fn list_dir(&self, dir_name: &str) -> Result<Vec<String>, String>{
     let re_pattern = dir_name.strip_suffix("/").unwrap_or(dir_name);
     let re_pattern = re_pattern.strip_suffix("\\").unwrap_or(re_pattern);
-    let re_pattern = re_pattern.replace("*", "^[/\\]*");
-    let file_pattern = format!("^{}[\\/]^[/\\]*$", &re_pattern);
+    let re_pattern = re_pattern.replace("*", "[^/\\]*");
+    let file_pattern = if re_pattern != "" {
+      format!("^{}[\\/][^/\\]*$", &re_pattern)
+    } else {
+      format!("^[^/\\]*$")
+    };
     let folder_leaf_pattern = format!("^{}$", &re_pattern);
     let file_re = regex::Regex::new(&file_pattern)
       .map_err(|e| format!("invalid re pattern: {e}"))?;
@@ -429,13 +428,23 @@ fn create_archive_inner(
   let folder_leaf_infos = folder_leaves
     .iter()
     .map(|x| ArchiveFolderLeafEntry{
-      name: x.strip_prefix(dir).unwrap_or(x).to_string_lossy().to_string()
+      name: x
+        .strip_prefix(dir)
+        .unwrap_or(x)
+        .to_string_lossy()
+        .to_string()
+        .replace("\\", "/")
     })
     .collect::<Vec<_>>();
   let mut file_infos = vec![];
   for (i, in_files) in block_files.iter().enumerate(){
     for (path, offset, size) in in_files{
-      let entry_name = path.strip_prefix(dir).unwrap_or(path).to_string_lossy().to_string();
+      let entry_name = path
+        .strip_prefix(dir)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string()
+        .replace("\\", "/");
       file_infos.push(ArchiveFileEntry{
         name: entry_name,
         block: i as _,

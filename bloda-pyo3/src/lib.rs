@@ -17,7 +17,7 @@ impl ArchiveReader{
         self.inner.list_entries_re(&re_pattern).map_err(PyException::new_err)
     }
 
-    fn list_dir(&self, dir_name: String) -> PyResult<Vec<String>>{
+    fn list_dir(&self, dir_name: String) -> PyResult<Vec<(String, String)>>{
         self.inner.list_dir(&dir_name).map_err(PyException::new_err)
     }
 

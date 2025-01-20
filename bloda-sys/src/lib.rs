@@ -110,32 +110,46 @@ impl ArchiveReader{
     Ok(files)
   }
 
-  pub fn list_dir(&self, dir_name: &str) -> Result<Vec<String>, String>{
+  pub fn list_dir(&self, dir_name: &str) -> Result<Vec<(String, String)>, String>{
     let re_pattern = dir_name.strip_suffix("/").unwrap_or(dir_name);
     let re_pattern = re_pattern.strip_suffix("\\").unwrap_or(re_pattern);
     let re_pattern = re_pattern.replace("*", r#"[^/\]*"#);
     let file_pattern = if re_pattern != "" {
       format!(r#"^{}[\/][^/\]*$"#, &re_pattern)
     } else {
-      format!(r#"^[^/\\]*$"#)
+      format!(r#"^[^/\]*$"#)
     };
-    let folder_leaf_pattern = format!(r#"^{}$"#, &re_pattern);
+    let folder_pattern = if re_pattern != "" {
+      format!(r#"^({}[\/][^/\]*)[/\].*$"#, &re_pattern)
+    } else {
+      format!(r#"^([^/\]*)[/\].*$"#)
+    };
+    let folder_leaf_pattern = format!(r#"^{}[\/][^/\]*$"#, &re_pattern);
     let file_re = regex::Regex::new(&file_pattern)
       .map_err(|e| format!("invalid file re pattern: {e}"))?;
-    let folder_leaf_re = regex::Regex::new(&folder_leaf_pattern)
+    let folder_re = regex::Regex::new(&folder_pattern)
       .map_err(|e| format!("invalid folder re pattern: {e}"))?;
+    let folder_leaf_re = regex::Regex::new(&folder_leaf_pattern)
+      .map_err(|e| format!("invalid folder leaf re pattern: {e}"))?;
     let mut  dir_leaves = self
       .folder_leaves
       .values()
       .filter(|x| folder_leaf_re.is_match(&x.name))
-      .map(|x| x.name.clone())
+      .map(|x| (x.name.clone(), "FOLDER".to_string()))
       .collect::<Vec<_>>();
     let mut files = self
       .files
       .values()
       .filter(|x| file_re.is_match(&x.name))
-      .map(|x| x.name.clone())
+      .map(|x| (x.name.clone(), "FILE".to_string()))
       .collect::<Vec<_>>();
+    let mut dirs = self
+      .files
+      .values()
+      .filter_map(|x| folder_re.captures(&x.name).map(|c| c[0].to_string()))
+      .map(|x| (x, "FOLDER".to_string()))
+      .collect::<Vec<_>>();
+    files.append(&mut dirs);
     files.append(&mut dir_leaves);
     Ok(files)
   }
